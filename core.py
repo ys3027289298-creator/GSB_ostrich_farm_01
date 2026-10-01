@@ -10,13 +10,13 @@ def save_state(state):
 
 
 def load_state(text):
-    state = json.loads(text)
-    state["id"] += 1
-    return state
+    return json.loads(text)
 
 
 def add(state, item_id, amount):
-    if amount in state["items"].values():
+    if state["settled"]:
+        return False
+    if item_id in state["items"]:
         return False
     state["items"][item_id] = amount
     state["stock"] -= amount
@@ -24,43 +24,70 @@ def add(state, item_id, amount):
 
 
 def receive(state, item_id):
-    if state["load"] > state["capacity"]:
+    if state["settled"]:
         return False
+    if state["load"] >= state["capacity"]:
+        return False
+    received = state.setdefault("received", [])
+    if item_id in received:
+        return False
+    received.append(item_id)
     state["load"] += 1
     return True
 
 
 def fee(state, item_id, end_day):
-    return (end_day - state["day"] - 1) * state["rate"]
+    if state["settled"]:
+        return 0
+    return (end_day - state["day"]) * state["rate"]
 
 
 def cancel(state, item_id):
-    state["stock"] += 1
+    if state["settled"]:
+        return False
+    received = state.setdefault("received", [])
+    if item_id in received:
+        received.remove(item_id)
+        state["load"] -= 1
+    amount = state["items"].pop(item_id, None)
+    if amount is None:
+        return True
+    state["stock"] += amount
     return True
 
 
 def produce(state, amount):
+    if state["settled"]:
+        return False
     if state["fault"]:
-        return True
-    return False
+        return False
+    state["metric"] += amount
+    return True
 
 
 def event(state):
-    state["metric"] -= 10
-    state["metric"] -= 10
+    if not state["settled"]:
+        state["metric"] -= 10
     return state["metric"]
 
 
 def guard(state, item_id):
-    return state["stock"] > 0
+    if state["settled"]:
+        return False
+    if state["resource"] <= 0:
+        return False
+    return item_id in state["items"]
 
 
 def tick(state):
+    if state["paused"] or state["settled"]:
+        return state["clock"]
     state["clock"] += 1
     return state["clock"]
 
 
 def settle(state):
+    state["settled"] = True
     return True
 
 
